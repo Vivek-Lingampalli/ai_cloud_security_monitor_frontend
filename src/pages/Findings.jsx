@@ -1,104 +1,96 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import FindingCard from '../components/FindingCard'
-
-// Static sample findings data
-const STATIC_FINDINGS = [
-  {
-    id: 1,
-    title: 'S3 Bucket Publicly Accessible',
-    description: 'The S3 bucket "production-data-2024" is configured with public read access, exposing sensitive data to the internet. This violates security best practices and compliance requirements.',
-    severity: 'critical',
-    resource: 'production-data-2024',
-    service: 'S3',
-    region: 'us-east-1',
-    detectedAt: '2024-04-28T10:30:00Z',
-    status: 'open',
-  },
-  {
-    id: 2,
-    title: 'EC2 Instance Missing Security Patches',
-    description: 'Critical security patches are missing on EC2 instance i-0a1b2c3d4e5f6g7h8. The instance is running outdated packages with known vulnerabilities.',
-    severity: 'high',
-    resource: 'i-0a1b2c3d4e5f6g7h8',
-    service: 'EC2',
-    region: 'us-west-2',
-    detectedAt: '2024-04-27T15:45:00Z',
-    status: 'open',
-  },
-  {
-    id: 3,
-    title: 'IAM User with Excessive Permissions',
-    description: 'IAM user "dev-admin-user" has been granted AdministratorAccess policy, which provides unrestricted access to all AWS services and resources.',
-    severity: 'high',
-    resource: 'dev-admin-user',
-    service: 'IAM',
-    region: 'global',
-    detectedAt: '2024-04-26T09:15:00Z',
-    status: 'open',
-  },
-  {
-    id: 4,
-    title: 'RDS Instance Not Encrypted',
-    description: 'Database instance "customer-db-prod" does not have encryption at rest enabled, potentially exposing sensitive customer data.',
-    severity: 'medium',
-    resource: 'customer-db-prod',
-    service: 'RDS',
-    region: 'eu-west-1',
-    detectedAt: '2024-04-25T14:20:00Z',
-    status: 'open',
-  },
-  {
-    id: 5,
-    title: 'Security Group Allows Unrestricted SSH Access',
-    description: 'Security group "web-servers-sg" allows SSH access (port 22) from 0.0.0.0/0, making instances vulnerable to brute force attacks.',
-    severity: 'medium',
-    resource: 'sg-0123456789abcdef',
-    service: 'VPC',
-    region: 'us-east-1',
-    detectedAt: '2024-04-24T11:30:00Z',
-    status: 'resolved',
-  },
-  {
-    id: 6,
-    title: 'CloudTrail Logging Disabled',
-    description: 'CloudTrail logging has been disabled in the production account, preventing audit trail and compliance monitoring.',
-    severity: 'critical',
-    resource: 'aws-cloudtrail-logs',
-    service: 'CloudTrail',
-    region: 'us-east-1',
-    detectedAt: '2024-04-23T08:00:00Z',
-    status: 'open',
-  },
-  {
-    id: 7,
-    title: 'Lambda Function Using Deprecated Runtime',
-    description: 'Lambda function "data-processor" is using Node.js 12.x runtime which is deprecated and no longer receives security updates.',
-    severity: 'low',
-    resource: 'data-processor',
-    service: 'Lambda',
-    region: 'ap-southeast-1',
-    detectedAt: '2024-04-22T16:45:00Z',
-    status: 'open',
-  },
-  {
-    id: 8,
-    title: 'EBS Volume Snapshot is Public',
-    description: 'EBS snapshot "snap-0987654321" is publicly accessible, potentially exposing backup data to unauthorized users.',
-    severity: 'critical',
-    resource: 'snap-0987654321',
-    service: 'EC2',
-    region: 'us-west-1',
-    detectedAt: '2024-04-21T13:15:00Z',
-    status: 'resolved',
-  },
-]
+import Loader from '../components/Loader'
+import { api } from '../services/api'
 
 function Findings() {
+  const [findings, setFindings] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
   const [selectedSeverity, setSelectedSeverity] = useState('all')
   const [selectedStatus, setSelectedStatus] = useState('all')
+  const [scanType, setScanType] = useState('full')
+  const [scanning, setScanning] = useState(false)
+  const [scanInfo, setScanInfo] = useState(null)
+
+  // Fetch initial scan results or latest findings
+  useEffect(() => {
+    fetchLatestFindings()
+  }, [])
+
+  const fetchLatestFindings = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      // Try to get the latest scan
+      const response = await api.get('/scans?limit=1')
+      
+      if (response.scans && response.scans.length > 0) {
+        const latestScan = response.scans[0]
+        
+        // Get detailed scan with findings
+        const scanDetails = await api.get(`/scans/${latestScan.id}`)
+        
+        // Map findings to frontend format
+        const mappedFindings = scanDetails.findings.map((finding) => ({
+          id: finding.id,
+          title: finding.title,
+          description: finding.description,
+          severity: finding.severity,
+          resource: finding.resource_id,
+          service: finding.resource_type,
+          region: finding.region,
+          detectedAt: finding.created_at,
+          status: finding.status,
+        }))
+        
+        setFindings(mappedFindings)
+        setScanInfo(scanDetails.scan)
+      }
+    } catch (err) {
+      console.error('Error fetching findings:', err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const runScan = async () => {
+    try {
+      setScanning(true)
+      setError(null)
+      
+      // Run the scan
+      const response = await api.post(`/scan?scan_type=${scanType}`)
+      
+      if (response.success && response.findings) {
+        // Map findings to frontend format
+        const mappedFindings = response.findings.map((finding) => ({
+          id: finding.id,
+          title: finding.title,
+          description: finding.description,
+          severity: finding.severity,
+          resource: finding.resource_id,
+          service: finding.resource_type,
+          region: finding.region,
+          detectedAt: finding.created_at,
+          status: finding.status,
+        }))
+        
+        setFindings(mappedFindings)
+        setScanInfo(response.scan)
+      }
+    } catch (err) {
+      console.error('Error running scan:', err)
+      setError(err.message || 'Failed to run scan. Please ensure the backend is running.')
+    } finally {
+      setScanning(false)
+    }
+  }
 
   // Filter findings based on selected filters
-  const filteredFindings = STATIC_FINDINGS.filter((finding) => {
+  const filteredFindings = findings.filter((finding) => {
     const matchesSeverity = selectedSeverity === 'all' || finding.severity === selectedSeverity
     const matchesStatus = selectedStatus === 'all' || finding.status === selectedStatus
     return matchesSeverity && matchesStatus
@@ -112,6 +104,16 @@ function Findings() {
 
   const headerStyle = {
     marginBottom: '32px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: '16px',
+  }
+
+  const titleSectionStyle = {
+    flex: '1',
+    minWidth: '300px',
   }
 
   const titleStyle = {
@@ -124,6 +126,35 @@ function Findings() {
   const subtitleStyle = {
     fontSize: '16px',
     color: '#6b7280',
+  }
+
+  const actionSectionStyle = {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'center',
+  }
+
+  const scanTypeSelectStyle = {
+    padding: '10px 16px',
+    fontSize: '14px',
+    border: '1px solid #d1d5db',
+    borderRadius: '6px',
+    backgroundColor: '#ffffff',
+    color: '#111827',
+    cursor: 'pointer',
+  }
+
+  const scanButtonStyle = {
+    padding: '10px 24px',
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#ffffff',
+    backgroundColor: '#3b82f6',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: scanning ? 'not-allowed' : 'pointer',
+    opacity: scanning ? 0.6 : 1,
+    transition: 'all 0.2s ease',
   }
 
   const filtersContainerStyle = {
@@ -206,19 +237,86 @@ function Findings() {
     color: '#6b7280',
   }
 
+  const errorStyle = {
+    padding: '16px',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    color: '#dc2626',
+    marginBottom: '24px',
+  }
+
+  const scanInfoStyle = {
+    padding: '12px 16px',
+    backgroundColor: '#eff6ff',
+    border: '1px solid #bfdbfe',
+    borderRadius: '6px',
+    marginBottom: '24px',
+    fontSize: '14px',
+    color: '#1e40af',
+  }
+
   // Calculate stats
-  const criticalCount = STATIC_FINDINGS.filter((f) => f.severity === 'critical').length
-  const highCount = STATIC_FINDINGS.filter((f) => f.severity === 'high').length
-  const openCount = STATIC_FINDINGS.filter((f) => f.status === 'open').length
+  const criticalCount = findings.filter((f) => f.severity === 'critical').length
+  const highCount = findings.filter((f) => f.severity === 'high').length
+  const openCount = findings.filter((f) => f.status === 'open').length
 
   return (
     <div style={containerStyle}>
       <div style={headerStyle}>
-        <h1 style={titleStyle}>Security Findings</h1>
-        <p style={subtitleStyle}>
-          Monitor and manage security vulnerabilities across your cloud infrastructure
-        </p>
+        <div style={titleSectionStyle}>
+          <h1 style={titleStyle}>Security Findings</h1>
+          <p style={subtitleStyle}>
+            Monitor and manage security vulnerabilities across your cloud infrastructure
+          </p>
+        </div>
+        
+        <div style={actionSectionStyle}>
+          <select
+            value={scanType}
+            onChange={(e) => setScanType(e.target.value)}
+            style={scanTypeSelectStyle}
+            disabled={scanning}
+          >
+            <option value="full">Full Scan</option>
+            <option value="s3">S3 Only</option>
+            <option value="ec2">EC2 Only</option>
+            <option value="iam">IAM Only</option>
+          </select>
+          
+          <button
+            onClick={runScan}
+            disabled={scanning}
+            style={scanButtonStyle}
+            onMouseEnter={(e) => {
+              if (!scanning) {
+                e.currentTarget.style.backgroundColor = '#2563eb'
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#3b82f6'
+            }}
+          >
+            {scanning ? 'Scanning...' : 'Run Scan'}
+          </button>
+        </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div style={errorStyle}>
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+
+      {/* Scan Info */}
+      {scanInfo && (
+        <div style={scanInfoStyle}>
+          Last scan completed at{' '}
+          {new Date(scanInfo.completed_at).toLocaleString()} •{' '}
+          Scanned {scanInfo.resources_scanned} resources in {scanInfo.duration_seconds}s
+        </div>
+      )}
 
       {/* Statistics Cards */}
       <div style={statsStyle}>
@@ -279,21 +377,30 @@ function Findings() {
         </div>
       </div>
 
+      {/* Loading State */}
+      {loading && <Loader />}
+
       {/* Findings List */}
-      <div style={findingsListStyle}>
-        {filteredFindings.length > 0 ? (
-          filteredFindings.map((finding) => (
-            <FindingCard key={finding.id} finding={finding} />
-          ))
-        ) : (
-          <div style={emptyStateStyle}>
-            <p style={{ fontSize: '18px', marginBottom: '8px', fontWeight: '600' }}>
-              No findings match your filters
-            </p>
-            <p>Try adjusting your filter criteria to see more results.</p>
-          </div>
-        )}
-      </div>
+      {!loading && (
+        <div style={findingsListStyle}>
+          {filteredFindings.length > 0 ? (
+            filteredFindings.map((finding) => (
+              <FindingCard key={finding.id} finding={finding} />
+            ))
+          ) : (
+            <div style={emptyStateStyle}>
+              <p style={{ fontSize: '18px', marginBottom: '8px', fontWeight: '600' }}>
+                {findings.length === 0 ? 'No findings available' : 'No findings match your filters'}
+              </p>
+              <p>
+                {findings.length === 0
+                  ? 'Click "Run Scan" to start scanning your cloud infrastructure.'
+                  : 'Try adjusting your filter criteria to see more results.'}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
