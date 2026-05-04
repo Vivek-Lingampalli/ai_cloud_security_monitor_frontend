@@ -41,6 +41,28 @@ export const api = {
       throw error
     }
   },
+
+  // Scan History APIs
+  getAllScans: async (limit = 50) => {
+    return api.get(`/scans?limit=${limit}`)
+  },
+
+  getScanById: async (scanId) => {
+    return api.get(`/scans/${scanId}`)
+  },
+
+  getAllFindings: async (params = {}) => {
+    const queryParams = new URLSearchParams(params).toString()
+    return api.get(`/findings${queryParams ? '?' + queryParams : ''}`)
+  },
+
+  getFindingsByStatus: async (status) => {
+    return api.get(`/findings?status=${status}`)
+  },
+
+  getFindingsBySeverity: async (severity) => {
+    return api.get(`/findings?severity=${severity}`)
+  },
 }
 
 export default api
