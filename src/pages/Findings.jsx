@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import FindingCard from '../components/FindingCard'
+import Filters from '../components/Filters'
 import Loader from '../components/Loader'
 import { api } from '../services/api'
 
@@ -7,46 +8,71 @@ function Findings() {
   const [findings, setFindings] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [selectedSeverity, setSelectedSeverity] = useState('all')
-  const [selectedStatus, setSelectedStatus] = useState('all')
+  const [filters, setFilters] = useState({
+    severity: 'all',
+    status: 'all',
+    service: 'all',
+    region: 'all',
+  })
   const [scanType, setScanType] = useState('full')
   const [scanning, setScanning] = useState(false)
   const [scanInfo, setScanInfo] = useState(null)
 
-  // Fetch initial scan results or latest findings
+  // Fetch findings when component mounts or filters change
   useEffect(() => {
-    fetchLatestFindings()
-  }, [])
+    fetchFindings()
+  }, [filters])
 
-  const fetchLatestFindings = async () => {
+  const fetchFindings = async () => {
     try {
       setLoading(true)
       setError(null)
       
-      // Try to get the latest scan
-      const response = await api.get('/scans?limit=1')
+      // Check if we have active filters
+      const hasActiveFilters = Object.values(filters).some(
+        (value) => value !== 'all' && value !== ''
+      )
       
-      if (response.scans && response.scans.length > 0) {
-        const latestScan = response.scans[0]
+      if (hasActiveFilters) {
+        // Use API filtering
+        const response = await api.getFilteredFindings(filters)
+        if (response.findings) {
+          const mappedFindings = response.findings.map((finding) => ({
+            id: finding.id,
+            title: finding.title,
+            description: finding.description,
+            severity: finding.severity,
+            resource: finding.resource_id,
+            service: finding.resource_type,
+            region: finding.region,
+            detectedAt: finding.created_at,
+            status: finding.status,
+          }))
+          setFindings(mappedFindings)
+        }
+      } else {
+        // No filters, get latest scan results
+        const response = await api.get('/scans?limit=1')
         
-        // Get detailed scan with findings
-        const scanDetails = await api.get(`/scans/${latestScan.id}`)
-        
-        // Map findings to frontend format
-        const mappedFindings = scanDetails.findings.map((finding) => ({
-          id: finding.id,
-          title: finding.title,
-          description: finding.description,
-          severity: finding.severity,
-          resource: finding.resource_id,
-          service: finding.resource_type,
-          region: finding.region,
-          detectedAt: finding.created_at,
-          status: finding.status,
-        }))
-        
-        setFindings(mappedFindings)
-        setScanInfo(scanDetails.scan)
+        if (response.scans && response.scans.length > 0) {
+          const latestScan = response.scans[0]
+          const scanDetails = await api.get(`/scans/${latestScan.id}`)
+          
+          const mappedFindings = scanDetails.findings.map((finding) => ({
+            id: finding.id,
+            title: finding.title,
+            description: finding.description,
+            severity: finding.severity,
+            resource: finding.resource_id,
+            service: finding.resource_type,
+            region: finding.region,
+            detectedAt: finding.created_at,
+            status: finding.status,
+          }))
+          
+          setFindings(mappedFindings)
+          setScanInfo(scanDetails.scan)
+        }
       }
     } catch (err) {
       console.error('Error fetching findings:', err)
@@ -61,8 +87,8 @@ function Findings() {
       setScanning(true)
       setError(null)
       
-      // Run the scan
-      const response = await api.post(`/scan?scan_type=${scanType}`)
+      // Run the scan using the updated API method
+      const response = await api.triggerScan(scanType)
       
       if (response.success && response.findings) {
         // Map findings to frontend format
@@ -80,6 +106,14 @@ function Findings() {
         
         setFindings(mappedFindings)
         setScanInfo(response.scan)
+        
+        // Reset filters after new scan
+        setFilters({
+          severity: 'all',
+          status: 'all',
+          service: 'all',
+          region: 'all',
+        })
       }
     } catch (err) {
       console.error('Error running scan:', err)
@@ -89,12 +123,10 @@ function Findings() {
     }
   }
 
-  // Filter findings based on selected filters
-  const filteredFindings = findings.filter((finding) => {
-    const matchesSeverity = selectedSeverity === 'all' || finding.severity === selectedSeverity
-    const matchesStatus = selectedStatus === 'all' || finding.status === selectedStatus
-    return matchesSeverity && matchesStatus
-  })
+  // Handle filter changes
+  const handleFilterChange = (newFilters) => {
+    setFilters(newFilters)
+  }
 
   const containerStyle = {
     maxWidth: '1200px',
@@ -155,43 +187,6 @@ function Findings() {
     cursor: scanning ? 'not-allowed' : 'pointer',
     opacity: scanning ? 0.6 : 1,
     transition: 'all 0.2s ease',
-  }
-
-  const filtersContainerStyle = {
-    backgroundColor: '#f9fafb',
-    border: '1px solid #e5e7eb',
-    borderRadius: '8px',
-    padding: '20px',
-    marginBottom: '24px',
-  }
-
-  const filtersRowStyle = {
-    display: 'flex',
-    gap: '20px',
-    flexWrap: 'wrap',
-  }
-
-  const filterGroupStyle = {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  }
-
-  const labelStyle = {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#374151',
-  }
-
-  const selectStyle = {
-    padding: '8px 12px',
-    fontSize: '14px',
-    border: '1px solid #d1d5db',
-    borderRadius: '6px',
-    backgroundColor: '#ffffff',
-    color: '#111827',
-    cursor: 'pointer',
-    minWidth: '180px',
   }
 
   const statsStyle = {
@@ -256,7 +251,7 @@ function Findings() {
     color: '#1e40af',
   }
 
-  // Calculate stats
+  // Calculate stats from current findings
   const criticalCount = findings.filter((f) => f.severity === 'critical').length
   const highCount = findings.filter((f) => f.severity === 'high').length
   const openCount = findings.filter((f) => f.status === 'open').length
@@ -322,7 +317,7 @@ function Findings() {
       <div style={statsStyle}>
         <div style={statCardStyle}>
           <div style={statLabelStyle}>Total Findings</div>
-          <div style={statValueStyle}>{filteredFindings.length}</div>
+          <div style={statValueStyle}>{findings.length}</div>
         </div>
         <div style={statCardStyle}>
           <div style={statLabelStyle}>Critical</div>
@@ -338,44 +333,8 @@ function Findings() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div style={filtersContainerStyle}>
-        <div style={filtersRowStyle}>
-          <div style={filterGroupStyle}>
-            <label htmlFor="severity-filter" style={labelStyle}>
-              Severity
-            </label>
-            <select
-              id="severity-filter"
-              value={selectedSeverity}
-              onChange={(e) => setSelectedSeverity(e.target.value)}
-              style={selectStyle}
-            >
-              <option value="all">All Severities</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-          </div>
-
-          <div style={filterGroupStyle}>
-            <label htmlFor="status-filter" style={labelStyle}>
-              Status
-            </label>
-            <select
-              id="status-filter"
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              style={selectStyle}
-            >
-              <option value="all">All Statuses</option>
-              <option value="open">Open</option>
-              <option value="resolved">Resolved</option>
-            </select>
-          </div>
-        </div>
-      </div>
+      {/* Filters Component */}
+      <Filters filters={filters} onFilterChange={handleFilterChange} />
 
       {/* Loading State */}
       {loading && <Loader />}
@@ -383,19 +342,17 @@ function Findings() {
       {/* Findings List */}
       {!loading && (
         <div style={findingsListStyle}>
-          {filteredFindings.length > 0 ? (
-            filteredFindings.map((finding) => (
+          {findings.length > 0 ? (
+            findings.map((finding) => (
               <FindingCard key={finding.id} finding={finding} />
             ))
           ) : (
             <div style={emptyStateStyle}>
               <p style={{ fontSize: '18px', marginBottom: '8px', fontWeight: '600' }}>
-                {findings.length === 0 ? 'No findings available' : 'No findings match your filters'}
+                No findings available
               </p>
               <p>
-                {findings.length === 0
-                  ? 'Click "Run Scan" to start scanning your cloud infrastructure.'
-                  : 'Try adjusting your filter criteria to see more results.'}
+                Click "Run Scan" to start scanning your cloud infrastructure or adjust your filters.
               </p>
             </div>
           )}

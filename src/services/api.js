@@ -63,6 +63,35 @@ export const api = {
   getFindingsBySeverity: async (severity) => {
     return api.get(`/findings?severity=${severity}`)
   },
+
+  // Get findings with advanced filtering
+  getFilteredFindings: async (filters = {}) => {
+    const params = {}
+    
+    // Only add filters that are not 'all' or empty
+    if (filters.severity && filters.severity !== 'all') {
+      params.severity = filters.severity
+    }
+    if (filters.status && filters.status !== 'all') {
+      params.status = filters.status
+    }
+    if (filters.service && filters.service !== 'all') {
+      params.resource_type = filters.service
+    }
+    if (filters.region && filters.region !== 'all') {
+      params.region = filters.region
+    }
+    if (filters.limit) {
+      params.limit = filters.limit
+    }
+    
+    return api.getAllFindings(params)
+  },
+
+  // Trigger a new scan
+  triggerScan: async (scanType = 'full') => {
+    return api.post(`/scan?scan_type=${scanType}`)
+  },
 }
 
 export default api
